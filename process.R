@@ -1,8 +1,12 @@
 library(googleway)
 library(jsonlite)
 library(dplyr)
+library(tidyr)
 library(sf)
+library(purrr)
 library(leaflet)
+
+# Import data ---------------------------------------------------------------------------------
 
 hospitales <- readRDS("data/hospitales.rds")
 hospitales <- hospitales |>
@@ -22,7 +26,7 @@ centroid_municipio <- map_municipios |>
     municipio_code,
     municipio_label,
     lat = centroid_y,
-    lng = centroid_y
+    lng = centroid_x
   )
 
 origin_destination_base <- expand_grid(
@@ -30,17 +34,30 @@ origin_destination_base <- expand_grid(
   hospital = hospitales$name
 )
 
-origin_destination_base |>
-  mutate(origin = map(id, \(id_municipio) select(filter(centroid_municipio, id == id_municipio), lng, lat))) |>
-  mutate(destination = map(hospital, \(hospital) select(filter(hospitales, name == hospital), lng, lat)))
-  
+origin_destination <- origin_destination_base |>
+  mutate(origin = map(id, \(id_municipio) select(filter(centroid_municipio, id == id_municipio), lat, lng))) |>
+  mutate(destination = map(hospital, \(hospital) select(filter(hospitales, name == hospital), lat, lng)))
+
+origin_destination <- origin_destination |>
+  mutate(
+    direccion_distance = map2(
+      origin,
+      destination,
+      possibly(get_distance_time, otherwise = NA),
+      .progress = TRUE
+    )
+  )
 
 
-map_municipios |>
-  leaflet() |>
-  addProviderTiles(providers$CartoDB.Positron) |>
-  addCircleMarkers(lng = ~centroid_x, lat = ~centroid_y)
-  
+saveRDS(origin_destination, "data/origin_destination_time.rds")
+
+origin_destination |>
+  unnest(c(origin, destination), names_sep = "_") |>
+  unnest(direccion_distance)
+
+centroid_municipio |>
+  semi_join(filter(origin_destination, is.na(direccion_distance)) |> distinct(id))
+
 # Mapa de hospitales --------------------------------------------------------------------------
 
 custom_icons <- icons(
@@ -65,3 +82,15 @@ hospitales |>
     opacity = 1
   )
   
+
+map_municipios |>
+  leaflet() |>
+  addProviderTiles(providers$CartoDB.Positron) |>
+  addPolygons(weight = 1, fill = NA, color = "#fd7567") |> 
+  addCircleMarkers(
+    lng = ~centroid_x,
+    lat = ~centroid_y,
+    radius = 3,
+    stroke = FALSE,
+    fillOpacity = 0.8
+  )
