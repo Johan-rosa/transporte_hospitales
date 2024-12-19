@@ -1,10 +1,10 @@
 library(googleway)
-library(jsonlite)
 library(dplyr)
 library(tidyr)
-library(sf)
 library(purrr)
 library(leaflet)
+library(sf)
+library(ggplot2)
 
 # Import data ---------------------------------------------------------------------------------
 
@@ -14,50 +14,7 @@ hospitales <- hospitales |>
   unnest(latlong)
 
 map_municipios <- readRDS("data/municipios_sf.rds")
-
-centroid_municipio <- map_municipios |>
-  st_drop_geometry() |>
-  select(
-    id,
-    region_code,
-    region_label,
-    provincia_code,
-    provincia_label,
-    municipio_code,
-    municipio_label,
-    lat = centroid_y,
-    lng = centroid_x
-  )
-
-origin_destination_base <- expand_grid(
-  id = centroid_municipio$id,
-  hospital = hospitales$name
-)
-
-origin_destination <- origin_destination_base |>
-  mutate(origin = map(id, \(id_municipio) select(filter(centroid_municipio, id == id_municipio), lat, lng))) |>
-  mutate(destination = map(hospital, \(hospital) select(filter(hospitales, name == hospital), lat, lng)))
-
-origin_destination <- origin_destination |>
-  mutate(
-    direccion_distance = map2(
-      origin,
-      destination,
-      possibly(get_distance_time, otherwise = NA),
-      .progress = TRUE
-    )
-  )
-
-
-saveRDS(origin_destination, "data/origin_destination_time.rds")
-
-origin_destination |>
-  unnest(c(origin, destination), names_sep = "_") |>
-  unnest(direccion_distance)
-
-centroid_municipio |>
-  semi_join(filter(origin_destination, is.na(direccion_distance)) |> distinct(id))
-
+distance_matrix <- readRDS("data/municipo_hospital_distance_matrix.rds")
 # Mapa de hospitales --------------------------------------------------------------------------
 
 custom_icons <- icons(
@@ -94,3 +51,8 @@ map_municipios |>
     stroke = FALSE,
     fillOpacity = 0.8
   )
+
+map_municipios <- map_municipios |>
+  left_join(slice_min(distance_matrix, duration_value, by = id))
+
+map_m
