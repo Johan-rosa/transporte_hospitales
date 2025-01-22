@@ -112,6 +112,36 @@ time_distance_min |>
   mutate(across(where(is.numeric), \(x) {x / 60 / 60}))
 
 
+
+data <- time_distance_min_all[88, ]
+
+polyline <- pull(data , polyline) |> 
+  googleway::decode_pl() 
+
+polyline |>
+  leaflet() %>%
+  addProviderTiles(providers$CartoDB.Positron) |>
+  addMarkers(
+    data = data,
+    lat = ~origin_lat,
+    lng = ~origin_lng
+  ) |> 
+  addMarkers(
+    data = data,
+    lat = ~destination_lat,
+    lng = ~destination_lng,
+    popup = ~glue::glue("Trayecto de {distance_text}, {duration_text}")
+  ) |> 
+  addPolylines(
+    lng = ~lon,
+    lat = ~lat,
+    color = "blue",
+    weight = 3,
+    opacity = 0.8,
+    label = "Route"
+  )
+
+
 highchart(type = "map") %>%
   hc_add_series(
     mapData = map_municipios_json,
@@ -211,6 +241,8 @@ highchart(type = "map") %>%
       list(from = 180 * 60, color = "#67000d", name = "+3 h")
     )
   )
+
+
 
 
 
