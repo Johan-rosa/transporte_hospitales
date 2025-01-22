@@ -1,9 +1,8 @@
-library(googleway)
-library(jsonlite)
+library(sf)
 library(dplyr)
 library(tidyr)
-library(sf)
 library(purrr)
+library(googleway)
 
 # Functions -----------------------------------------------------------------------------------
 
@@ -52,9 +51,7 @@ get_distance_time <- function(
 # Import data ---------------------------------------------------------------------------------
 
 hospitales <- readRDS("data/hospitales.rds")
-hospitales <- hospitales |>
-  mutate(type = c(rep("Hospital traumatológico", 3), rep("Hospital con área de shok", 12))) |>
-  unnest(latlong)
+hospitales_nuevos <- readRDS("data/hospitales_nuevos.rds")
 
 map_municipios <- readRDS("data/municipios_sf.rds")
 
@@ -70,7 +67,14 @@ centroid_municipio <- map_municipios |>
     municipio_label,
     lat = centroid_y,
     lng = centroid_x
-  )
+  ) |>
+  as_tibble()
+
+adjusted_centroids <- readRDS("data/municipio_adjusted_cengroid.rds")
+
+centroid_municipio <- centroid_municipio |>
+  anti_join(adjusted_centroids, by = c("id")) |>
+  bind_rows(adjusted_centroids)
 
 origin_destination_base <- expand_grid(
   id = centroid_municipio$id,
@@ -91,39 +95,32 @@ origin_destination <- origin_destination_base |>
 #       .progress = TRUE
 #     )
 #   )
+#
+# saveRDS(origin_destination, "data/origin_destination_time.rds")
 
 origin_destination <- readRDS("data/origin_destination_time.rds")
-saveRDS(origin_destination, "data/origin_destination_time.rds")
 
-# Fetch data for places where a car can't reach the centroid
+# Hospitales nuevos ---------------------------------------------------------------------------
 
-adjusted_centroids <- readxl::read_excel("data/adjusted_cetroid.xlsx") |>
-  select(-c(lng, lat)) |>
-  separate(new_location, into = c("lat", "lng"), sep = ", ") |>
-  mutate(
-    across(ends_with("code"), \(code) stringr::str_pad(code, 2, side = "left", pad = "0")),
-    across(c(lat, lng), as.numeric),
-    id = stringr::str_pad(id, 6, "left", "0")
-  )
+origin_destination_hospitales_nuevos_base <- expand_grid(
+  id = centroid_municipio$id,
+  hospital = hospitales_nuevos$name
+)
 
+origin_destination_hospitales_nuevos <- origin_destination_hospitales_nuevos_base |>
+  mutate(origin = map(id, \(id_municipio) select(filter(centroid_municipio, id == id_municipio), lat, lng))) |>
+  mutate(destination = map(hospital, \(hospital) select(filter(hospitales_nuevos, name == hospital), lat, lng)))
 
-origin_destination_adjusted <- origin_destination_base |>
-  filter(id %in% adjusted_centroids$id) |>
-  mutate(origin = map(id, \(id_municipio) select(filter(adjusted_centroids, id == id_municipio), lat, lng))) |>
-  mutate(destination = map(hospital, \(hospital) select(filter(hospitales, name == hospital), lat, lng)))
-
-
-#Do not run this code every time, it takes time and tokens
-origin_destination_adjusted <- origin_destination_adjusted |>
-  mutate(
-    direccion_distance = map2(
-      origin,
-      destination,
-      possibly(get_distance_time, otherwise = NA),
-      .progress = TRUE
-    )
-  )
-
-saveRDS(origin_destination_adjusted, "data/origin_destination_adjusted")
-
+# # Do not run this code every time, it takes time and tokens
+# origin_destination_hospitales_nuevos <- origin_destination_hospitales_nuevos |>
+#   mutate(
+#     direccion_distance = map2(
+#       origin,
+#       destination,
+#       possibly(get_distance_time, otherwise = NA),
+#       .progress = TRUE
+#     )
+#   )
+# 
+# saveRDS(origin_destination_hospitales_nuevos, "data/origin_destination_time_hospitales_nuevos.rds")
 

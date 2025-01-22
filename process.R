@@ -55,4 +55,3 @@ map_municipios |>
 map_municipios <- map_municipios |>
   left_join(slice_min(distance_matrix, duration_value, by = id))
 
-map_m
