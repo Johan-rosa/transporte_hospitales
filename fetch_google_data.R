@@ -92,15 +92,38 @@ origin_destination <- origin_destination_base |>
 #     )
 #   )
 
+origin_destination <- readRDS("data/origin_destination_time.rds")
 saveRDS(origin_destination, "data/origin_destination_time.rds")
 
 # Fetch data for places where a car can't reach the centroid
 
-centroid_municipio |>
-  semi_join(filter(origin_destination, is.na(direccion_distance)) |> distinct(id))
+adjusted_centroids <- readxl::read_excel("data/adjusted_cetroid.xlsx") |>
+  select(-c(lng, lat)) |>
+  separate(new_location, into = c("lat", "lng"), sep = ", ") |>
+  mutate(
+    across(ends_with("code"), \(code) stringr::str_pad(code, 2, side = "left", pad = "0")),
+    across(c(lat, lng), as.numeric),
+    id = stringr::str_pad(id, 6, "left", "0")
+  )
 
-origin_destination |>
-  unnest(c(origin, destination), names_sep = "_") |>
-  unnest(direccion_distance)
+
+origin_destination_adjusted <- origin_destination_base |>
+  filter(id %in% adjusted_centroids$id) |>
+  mutate(origin = map(id, \(id_municipio) select(filter(adjusted_centroids, id == id_municipio), lat, lng))) |>
+  mutate(destination = map(hospital, \(hospital) select(filter(hospitales, name == hospital), lat, lng)))
+
+
+#Do not run this code every time, it takes time and tokens
+origin_destination_adjusted <- origin_destination_adjusted |>
+  mutate(
+    direccion_distance = map2(
+      origin,
+      destination,
+      possibly(get_distance_time, otherwise = NA),
+      .progress = TRUE
+    )
+  )
+
+saveRDS(origin_destination_adjusted, "data/origin_destination_adjusted")
 
 
