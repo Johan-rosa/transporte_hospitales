@@ -1,10 +1,11 @@
-library(googleway)
+library(sf)
 library(dplyr)
 library(tidyr)
 library(purrr)
 library(leaflet)
-library(sf)
 library(ggplot2)
+library(googleway)
+library(geojsonio)
 library(highcharter)
 
 # Import data ---------------------------------------------------------------------------------
@@ -51,6 +52,7 @@ municipios_distance_time_hospitales_nuevos <- municipios_distance_time_hospitale
 municipios_distance_time_hospitales_nuevos_all <- municipios_distance_time_hospitales |>
   bind_rows(municipios_distance_time_hospitales_nuevos)
 
+saveRDS(municipios_distance_time_hospitales_nuevos_all, "data/municipios_distance_time_all.rds")
 # Mapa de hospitales --------------------------------------------------------------------------
 
 custom_icons <- icons(
@@ -91,29 +93,11 @@ time_distance_min_all <- municipios_distance_time_hospitales_nuevos_all |>
   mutate(log_duration_value = log(duration_value))
 
 
-time_distance_min |>
-  summarise(
-    when = "before",
-    across(
-      .cols = duration_value, 
-      .fns = list(mean = mean, max = max, min = min)
-    )
-  ) |>
-  bind_rows(
-    time_distance_min_all |>
-      summarise(
-        when = "after",
-        across(
-          .cols = duration_value, 
-          .fns = list(mean = mean, max = max, min = min)
-        )
-      )
-  ) |>
-  mutate(across(where(is.numeric), \(x) {x / 60 / 60}))
 
 
 
-data <- time_distance_min_all[88, ]
+
+data <- municipios_distance_time_hospitales_nuevos[1223, ]
 
 polyline <- pull(data , polyline) |> 
   googleway::decode_pl() 
@@ -234,14 +218,52 @@ highchart(type = "map") %>%
     dataClassColor = "category",
     dataClasses = list(
       list(to = 20 * 60, color = "#fee5d9", name = "20 min"),
-      list(from = 20 * 60, to = 60 * 60, color = "#fcae91", name = "1 h"),
+      list(from = 20 * 60, to = 60 * 60, color = "#fcae91", name = "10 h"),
       list(from = 60 * 60, to = 90 * 60, color = "#fb6a4a", name = "1.5 h"),
-      list(from = 90 * 60, to = 120 * 60, color = "#de2d26", name = "2 h"),
-      list(from = 120 * 60, to = 180 * 60, color = "#a50f15", name = "3 h"),
+      list(from = 90 * 60, to = 120 * 60, color = "#de2d26", name = "2.0 h"),
+      list(from = 120 * 60, to = 180 * 60, color = "#a50f15", name = "3.0 h"),
       list(from = 180 * 60, color = "#67000d", name = "+3 h")
     )
   )
 
+# Stats -------------------------------------------------------------------
+
+summarise_time <- function(seconds) {
+  if (!is.numeric(seconds) || any(seconds < 0)) {
+    stop("Input must be a non-negative numeric vector.")
+  }
+  
+  hours <- seconds %/% 3600
+  minutes <- (seconds %% 3600) %/% 60
+  remaining_seconds <- round(seconds %% 60)
+  
+  pad <- \(x) stringr::str_pad(x, width = 2, pad = "0")
+  glue::glue("{pad(hours)}:{pad(minutes)}:{pad(remaining_seconds)}")
+}
+
+# Example usage
+summarise_time(c(4767, 3264, 15671, 10752, 284)) 
+
+
+time_distance_min |>
+  summarise(
+    when = "before",
+    across(
+      .cols = duration_value, 
+      .fns = list(mean = mean, max = max, min = min)
+    )
+  ) |>
+  bind_rows(
+    time_distance_min_all |>
+      summarise(
+        when = "after",
+        across(
+          .cols = duration_value, 
+          .fns = list(mean = mean, max = max, min = min)
+        )
+      )
+  ) |>
+  mutate(across(where(is.numeric), summarise_time))
 
 
 
