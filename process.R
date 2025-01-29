@@ -52,7 +52,8 @@ municipios_distance_time_hospitales_nuevos <- municipios_distance_time_hospitale
 municipios_distance_time_hospitales_nuevos_all <- municipios_distance_time_hospitales |>
   bind_rows(municipios_distance_time_hospitales_nuevos)
 
-saveRDS(municipios_distance_time_hospitales_nuevos_all, "data/municipios_distance_time_all.rds")
+# saveRDS(municipios_distance_time_hospitales_nuevos_all, "data/municipios_distance_time_all.rds")
+
 # Mapa de hospitales --------------------------------------------------------------------------
 
 custom_icons <- icons(
@@ -79,22 +80,26 @@ hospitales |>
 
 
 # Visualización tiempos -----------------------------------------------------------------------
+division_territorial <- map_municipios |>
+  st_drop_geometry() |>
+  as_tibble() |> 
+  select(id, region_label, provincia_label)
+
+division_territorial
 
 time_distance_min <- municipios_distance_time_hospitales |>
   group_by(id, municipio_label) |>
   slice_min(duration_value) |>
   ungroup() |>
-  mutate(log_duration_value = log(duration_value))
+  mutate(log_duration_value = log(duration_value)) |>
+  left_join(division_territorial, by = "id")
 
 time_distance_min_all <- municipios_distance_time_hospitales_nuevos_all |>
   group_by(id, municipio_label) |>
   slice_min(duration_value) |>
   ungroup() |>
-  mutate(log_duration_value = log(duration_value))
-
-
-
-
+  mutate(log_duration_value = log(duration_value)) |> 
+  left_join(division_territorial, by = "id")
 
 
 data <- municipios_distance_time_hospitales_nuevos[1223, ]
@@ -108,7 +113,8 @@ polyline |>
   addMarkers(
     data = data,
     lat = ~origin_lat,
-    lng = ~origin_lng
+    lng = ~origin_lng,
+    popup = ~glue::glue("Trayecto de {distance_text}, {duration_text}")
   ) |> 
   addMarkers(
     data = data,
@@ -158,7 +164,8 @@ highchart(type = "map") %>%
     )
   )
 
-highchart(type = "map") %>%
+map1 <- highchart(type = "map") %>%
+  hc_chart(events = list(load = JS("function() { this.myChartId = 'chart2'; }"))) |> 
   hc_add_series(
     mapData = map_municipios_json,
     data = select(
@@ -190,9 +197,35 @@ highchart(type = "map") %>%
       list(from = 120 * 60, to = 180 * 60, color = "#a50f15", name = "3 h"),
       list(from = 180 * 60, color = "#67000d", name = "+3 h")
     )
-  )
+  ) |>
+  hc_plotOptions(series = list(
+    point = list(
+      events = list(
+        mouseOver = JS(
+          "function() {
+            var chart1 = Highcharts.charts.filter(chart => chart.myChartId === 'chart1')[0];
+            if (chart1) {
+              chart1.series[0].data[this.index].setState('hover');
+              chart1.tooltip.refresh(chart1.series[0].data[this.index]);
+            }
+          }"
+        ),
+        mouseOut = JS(
+          "function() {
+            var chart1 = Highcharts.charts.filter(chart => chart.myChartId === 'chart1')[0];
+            if (chart1) {
+              chart1.series[0].data[this.index].setState('');
+              chart1.tooltip.hide();
+            }
+          }"
+        )
+      )
+    )
+  ))
 
-highchart(type = "map") %>%
+saveRDS(map1, "outputs/color_map_original.rds")
+
+map2 <- highchart(type = "map") %>%
   hc_add_series(
     mapData = map_municipios_json,
     data = select(
@@ -218,14 +251,42 @@ highchart(type = "map") %>%
     dataClassColor = "category",
     dataClasses = list(
       list(to = 20 * 60, color = "#fee5d9", name = "20 min"),
-      list(from = 20 * 60, to = 60 * 60, color = "#fcae91", name = "10 h"),
+      list(from = 20 * 60, to = 60 * 60, color = "#fcae91", name = "1.0 h"),
       list(from = 60 * 60, to = 90 * 60, color = "#fb6a4a", name = "1.5 h"),
       list(from = 90 * 60, to = 120 * 60, color = "#de2d26", name = "2.0 h"),
       list(from = 120 * 60, to = 180 * 60, color = "#a50f15", name = "3.0 h"),
       list(from = 180 * 60, color = "#67000d", name = "+3 h")
     )
-  )
+  ) |>
+  hc_chart(events = list(load = JS("function() { this.myChartId = 'chart1'; }"))) %>%
+  hc_plotOptions(series = list(
+    point = list(
+      events = list(
+        mouseOver = JS(
+          "function() {
+            var chart2 = Highcharts.charts.filter(chart => chart.myChartId === 'chart2')[0];
+            if (chart2) {
+              chart2.series[0].data[this.index].setState('hover');
+              chart2.tooltip.refresh(chart2.series[0].data[this.index]);
+            }
+          }"
+        ),
+        mouseOut = JS(
+          "function() {
+            var chart2 = Highcharts.charts.filter(chart => chart.myChartId === 'chart2')[0];
+            if (chart2) {
+              chart2.series[0].data[this.index].setState('');
+              chart2.tooltip.hide();
+            }
+          }"
+        )
+      )
+    )
+  ))
 
+saveRDS(map2, "outputs/color_map_hipotetico.rds")
+
+htmltools::browsable(htmltools::tagList(map1, map2))
 # Stats -------------------------------------------------------------------
 
 summarise_time <- function(seconds) {
@@ -245,28 +306,29 @@ summarise_time <- function(seconds) {
 summarise_time(c(4767, 3264, 15671, 10752, 284)) 
 
 
-time_distance_min |>
+time_distance_min_all |>
   summarise(
-    when = "before",
     across(
       .cols = duration_value, 
-      .fns = list(mean = mean, max = max, min = min)
-    )
-  ) |>
-  bind_rows(
-    time_distance_min_all |>
-      summarise(
-        when = "after",
-        across(
-          .cols = duration_value, 
-          .fns = list(mean = mean, max = max, min = min)
-        )
-      )
+      .fns = list(mean = mean, max = max, min = min, sd = sd),
+      na.rm = TRUE
+    ),
+    .by = "provincia_label"
   ) |>
   mutate(across(where(is.numeric), summarise_time))
 
+time_distance_min |>
+  summarise(
+    across(
+      .cols = duration_value, 
+      .fns = list(mean = mean, max = max, min = min)
+    ),
+    .by = "provincia_label"
+  ) |>
+  mutate(across(where(is.numeric), summarise_time)) |>
+  View()
 
-
+  
 
 # map_municipios |>
 #   leaflet() |>
