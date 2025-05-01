@@ -8,20 +8,206 @@ library(purrr)
 hospitales_existentes <- readRDS("data/hospitales.rds")
 hospitales_nuevos <- readRDS("data/hospitales_nuevos.rds")
 
-hospitales <- bind_rows(hospitales_existentes, hospitales_nuevos)
+hospitales <- bind_rows(hospitales_existentes, hospitales_nuevos) |>
+  mutate(
+    type = ifelse(
+      type == "Hospital traumatológico",
+      "Hospital traumatológico",
+      "Hospital con área de shock"
+    ),
+    emoji = if_else(type == "Hospital traumatológico", "🏥",  "🚑")
+  )
 
 map_municipios <- readRDS("data/municipios_sf.rds")
 map_municipios_json <- geojsonio::geojson_list(map_municipios)
 
-municipios_distance_time <- readRDS("data/municipios_distance_time_all.rds")
+municipios_distance_time <- readRDS("data/municipios_distance_time_all.rds") |>
+  mutate(
+    hospital_type = ifelse(
+      hospital_type == "Hospital traumatológico",
+      "Hospital traumatológico",
+      "Hospital con área de shock"
+    )
+  )
+
+min_distance_time_existing <- municipios_distance_time |>
+  filter(hospita_existente) |>
+  slice_min(duration_value, by = id)
+
+min_distance_time_all <- municipios_distance_time |>
+  slice_min(duration_value, by = id) 
+
+min_distance_time_trauma_existing <- municipios_distance_time |>
+  filter(hospita_existente, hospital_type == "Hospital traumatológico") |> 
+  slice_min(duration_value, by = id)
+
+min_distance_time_trauma_all <- municipios_distance_time |>
+  filter(hospital_type == "Hospital traumatológico") |> 
+  slice_min(duration_value, by = id)
+
+
+# functions -----------------------------------------------------------------------------------
+
+plot_polyline <- function(map, data) {
+  polylines_df <- data |>
+    dplyr::pull(polyline) |>
+    purrr::map(googleway::decode_pl)
+  
+  for (index in seq_along(polylines_df)) {
+    current_polyline <- polylines_df[[index]]
+    
+    map <- map |>
+      leaflet::addPolylines(
+        data = current_polyline,
+        lng = ~lon,
+        lat = ~lat,
+        weight = 2,
+        opacity = 0.8,
+        color = "gray"
+      )
+  }
+  
+  map
+}
+
+add_hospital_legend <- function(plot, data, position = "bottomleft") {
+  legend_html <- "<div style='padding:10px'><b>Tipo de hospital</b><br>"
+  hospital_types <- distinct(data, type, emoji)
+  
+  for (i in seq_len(nrow(hospital_types))) {
+    legend_html <- paste0(
+      legend_html,
+      hospital_types$emoji[i], " - ", hospital_types$type[i], "<br>"
+    )
+  }
+  
+  emoji_legend_html <- paste0(legend_html, "</div>")
+  
+  # Add custom legend
+  plot |>
+    addControl(
+      html = emoji_legend_html,
+      position = position
+    )
+}
+
+
+plot_time_distance <- function(
+    map_data,
+    hospitales,
+    color_pal
+) {
+  map_data |>
+    leaflet() |>
+    addProviderTiles(providers$CartoDB.Positron) |>
+    addPolygons(
+      stroke = TRUE,
+      layerId = ~id,
+      weight = 1,
+      fillOpacity = 0.6,
+      fillColor = ~color_pal(duration_value),
+      color = "white"
+    ) |>
+    plot_polyline(map_data) |>
+    addCircleMarkers(
+      lat = ~origin_lat,
+      lng = ~origin_lng,
+      radius = 4,
+      weight = 2,
+      fillColor = "#225EA8",
+      fillOpacity = 1,
+      stroke = FALSE,
+      label = ~municipio_label
+    ) |>
+    add_hospital_legend(hospitales) |>
+    addLabelOnlyMarkers(
+      data = hospitales,
+      ~lng,
+      ~lat,
+      label = ~emoji,
+      labelOptions = labelOptions(
+        noHide = TRUE,
+        textOnly = TRUE,
+        style = list(
+          "font-size" = "24px",
+          "text-align" = "center"
+        )
+      )
+    ) |>
+    addCircleMarkers(
+      data = hospitales,
+      ~lng,
+      ~lat,
+      label = ~name,
+      radius = 15,
+      fillOpacity = 0, 
+      stroke = FALSE,
+    ) |>
+    addLegend(
+      position = "bottomright",
+      pal = color_pal,
+      title = "Duración (min)",
+      values = map_data$duration_value,
+      labFormat = labelFormat(
+        transform = function(x) {
+          mins <- x / 60
+          (mins %/% 10) * 10
+        }
+      )
+    )
+}
+
+
+# Maps ----------------------------------------------------------------------------------------
+
+pal_time_all <- colorNumeric(
+  palette = colorRampPalette(c("#1a9850", "#fee08b", "#f46d43", "#d73027", "#a50026"))(100),
+  domain = c(0, min_distance_time_existing$duration_value)
+)
+
+pal_time_trauma <- colorNumeric(
+  palette = colorRampPalette(c("#1a9850", "#fee08b", "#f46d43", "#d73027", "#a50026"))(100),
+  domain = c(0, min_distance_time_trauma_existing$duration_value)
+)
+
+
+## Tiempo de viajes con hospitales existentes
+map_municipios |> 
+  left_join(min_distance_time_existing) |>
+  plot_time_distance(hospitales = hospitales, color_pal = pal_time_all)
+
+## Tiempo de viaje con hospitales hipoteticos
+map_municipios |> 
+  left_join(min_distance_time_all) |>
+  plot_time_distance(hospitales = hospitales, color_pal = pal_time_all)
+
+## Tiempo de viajes hacia hospital traumatológico existente
+map_municipios |> 
+  left_join(min_distance_time_trauma_existing) |>
+  plot_time_distance(
+    hospitales = filter(hospitales, type == "Hospital traumatológico"),
+    color_pal = pal_time_trauma
+  )
+
+## Tiempo de viajes hacia hospital traumatológico con hipoteticos
+map_municipios |> 
+  left_join(min_distance_time_trauma_all) |>
+  plot_time_distance(
+    hospitales = filter(hospitales, type == "Hospital traumatológico"),
+    color_pal = pal_time_trauma
+  )
+
+
+
+
+
+# Data wrangling ------------------------------------------------------------------------------
+
+hospitales <- hospitales
+
 
 # Mapa de hospitales ------------------------------------------------------
 
-hospitales <- hospitales |>
-  mutate(
-    type = ifelse(type == "Hospital traumatológico", "Hospital traumatológico", "Hospital con área de shock"),
-    emoji = if_else(type == "Hospital traumatológico", "🏥",  "🚑")
-  )
 
 hospitales |> 
   leaflet()  |>
@@ -64,6 +250,8 @@ ll_municipios <- municipios_distance_time |>
     stroke = FALSE,
     label = ~municipio_label
   )
+
+ll_municipios
 
 # Polylines -----------------------------------------------------------------------------------
 
@@ -159,6 +347,10 @@ ll_colorplet_polyline |>
     position = "bottomleft"
   )
 
+
+
+
+
 # Colorplet routes map ------------------------------------------------------------------------
 
 pal_green_red <- colorNumeric(
@@ -168,7 +360,7 @@ pal_green_red <- colorNumeric(
 
 pal_green_red <- colorNumeric(
   palette = colorRampPalette(c("#1a9850", "#fee08b", "#f46d43", "#d73027", "#a50026"))(100),
-  domain = polylines_str$duration_value
+  domain = municipios_distance_time$duration_value
 )
 
 duration_legend <- htmltools::tags$div(
@@ -261,5 +453,9 @@ ll_colorplet_polyline |>
   addControl(
     position = "bottomleft",
     html = duration_legend
+  ) |>
+  addLegend(
+    position = "topright",
+    colors = pal()
   )
 
