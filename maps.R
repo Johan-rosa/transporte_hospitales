@@ -18,7 +18,10 @@ municipios_distance_time <- readRDS("data/municipios_distance_time_all.rds")
 # Mapa de hospitales ------------------------------------------------------
 
 hospitales <- hospitales |>
-  mutate(emoji = if_else(type == "Hospital con área de shock", "🚑", "💊"))
+  mutate(
+    type = ifelse(type == "Hospital traumatológico", "Hospital traumatológico", "Hospital con área de shock"),
+    emoji = if_else(type == "Hospital traumatológico", "🏥",  "🚑")
+  )
 
 hospitales |> 
   leaflet()  |>
@@ -95,10 +98,8 @@ for (index in seq_along(polylines_str$polyline)) {
     )
 }
 
-ll_plyline |>
-  addControl(
-    html = htmltools::tags$div(
-      style = "
+duration_legend <- htmltools::tags$div(
+  style = "
         position: relative;
         background: white;
         padding: 6px 10px;
@@ -109,27 +110,54 @@ ll_plyline |>
         line-height: 1.2;
         width: 300px;
       ",
-      htmltools::tags$div("Tiempodel viaje", style = "text-align: left;"),
-      htmltools::tags$div(
-        style = "
+  htmltools::tags$div("Tiempodel viaje", style = "text-align: left;"),
+  htmltools::tags$div(
+    style = "
           background: linear-gradient(to right, #ffffb2, #fecc5c, #fd8d3c, #f03b20, #bd0026);
           height: 12px;
           margin-top: 4px;
           margin-bottom: 4px;
           border-radius: 4px;
         "
-      ),
-      htmltools::tags$div(
-        style = "display: flex; justify-content: space-between;",
-        htmltools::tags$span("15m"),
-        htmltools::tags$span("1h"),
-        htmltools::tags$span("3h"),
-        htmltools::tags$span("5h")
-      )
-    ),
+  ),
+  htmltools::tags$div(
+    style = "display: flex; justify-content: space-between;",
+    htmltools::tags$span("15m"),
+    htmltools::tags$span("1h"),
+    htmltools::tags$span("3h"),
+    htmltools::tags$span("5h")
+  )
+)
+
+ll_plyline |>
+  addControl(
+    html = duration_legend,
     position = "bottomright"
   )
 
+
+
+# Legend hospital type ----------------------------------------------------
+
+# Create hospital legend HTML
+legend_html <- "<div style='padding:10px'><b>Tipo de hospital</b><br>"
+hospital_types <- distinct(hospitales, type, emoji)
+
+for (i in seq_len(nrow(hospital_types))) {
+  legend_html <- paste0(
+    legend_html,
+    hospital_types$emoji[i], " - ", hospital_types$type[i], "<br>"
+  )
+}
+
+emoji_legend_html <- paste0(legend_html, "</div>")
+
+# Add custom legend
+ll_colorplet_polyline |>
+  addControl(
+    html = emoji_legend_html,
+    position = "bottomleft"
+  )
 
 # Colorplet routes map ------------------------------------------------------------------------
 
@@ -141,6 +169,38 @@ pal_green_red <- colorNumeric(
 pal_green_red <- colorNumeric(
   palette = colorRampPalette(c("#1a9850", "#fee08b", "#f46d43", "#d73027", "#a50026"))(100),
   domain = polylines_str$duration_value
+)
+
+duration_legend <- htmltools::tags$div(
+  style = "
+        position: relative;
+        background: white;
+        padding: 6px 10px;
+        border-radius: 5px;
+        box-shadow: 0 0 15px rgba(0,0,0,0.2);
+        font-size: 12px;
+        text-align: center;
+        line-height: 1.2;
+        width: 300px;
+        margin-bottom: 30px;
+      ",
+  htmltools::tags$div("Tiempodel viaje", style = "text-align: left;"),
+  htmltools::tags$div(
+    style = "
+          background: linear-gradient(to right, #1a9850, #fee08b, #f46d43, #d73027, #a50026);
+          height: 12px;
+          margin-top: 4px;
+          margin-bottom: 4px;
+          border-radius: 4px;
+        "
+  ),
+  htmltools::tags$div(
+    style = "display: flex; justify-content: space-between;",
+    htmltools::tags$span("15m"),
+    htmltools::tags$span("1h"),
+    htmltools::tags$span("3h"),
+    htmltools::tags$span("5h")
+  )
 )
 
 ll_colorplet <- map_municipios |>
@@ -193,4 +253,13 @@ ll_colorplet_polyline |>
         "text-align" = "center"
       )
     )
+  ) |> 
+  addControl(
+    html = emoji_legend_html,
+    position = "bottomright"
+  ) |> 
+  addControl(
+    position = "bottomleft",
+    html = duration_legend
   )
+
