@@ -18,6 +18,12 @@ git clone https://github.com/Johan-rosa/transporte_hospitales.git
 renv::restore()
 ```
 
+3- Se debe contar con un API key ge google cloud platform para poder utilizar API de google maps distance matrix. Agregar el Key como una variable de ambiente en tu `.Renviron`
+
+```
+API_KEY=YourApIKeYHerE
+```
+
 ### Recursos principales
 
 #### Fuentes de datos
